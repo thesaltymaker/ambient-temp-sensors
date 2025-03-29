@@ -1,15 +1,15 @@
 # Wiring for ESP32-S2 QT PY
 # ESP32-S2 QT PY
-#     SCK    -> MAX31855 CLK
-#     MI     -> MAX31855 DO
+#     SCK
+#     MI
 #     MO
-#     3V     -> MAX31855 VIN
-#     GND    -> MAX31855 GND
+#     3V
+#     GND
 #     5V
 #     A0
 #     A1
 #     A2
-#     A3     -> MAX31855 CS
+#     A3 
 #     SDA
 #     SCL
 #     i2c bus for stemma connector is i2c = busio.I2C(board.SCL1, board.SDA1)
