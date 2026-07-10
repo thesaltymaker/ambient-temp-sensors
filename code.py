@@ -1,15 +1,15 @@
 # Wiring for ESP32-S2 QT PY
 # ESP32-S2 QT PY
-#     SCK    -> MAX31855 CLK
-#     MI     -> MAX31855 DO
+#     SCK
+#     MI
 #     MO
-#     3V     -> MAX31855 VIN
-#     GND    -> MAX31855 GND
+#     3V
+#     GND
 #     5V
-#     A0
+#     A0     -> DS18B20 OneWire bus (both sensors)
 #     A1
 #     A2
-#     A3     -> MAX31855 CS
+#     A3
 #     SDA
 #     SCL
 #     i2c bus for stemma connector is i2c = busio.I2C(board.SCL1, board.SDA1)
@@ -30,6 +30,8 @@ from random import randint
 import adafruit_ds18x20
 from adafruit_onewire.bus import OneWireBus
 import neopixel
+import mdns
+from adafruit_httpserver import Server, Request, JSONResponse
 
 
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
@@ -58,10 +60,33 @@ print("Ping google.com: %f ms" % (wifi.radio.ping(ipv4)*1000))
 pool = socketpool.SocketPool(wifi.radio)
 requests = adafruit_requests.Session(pool, ssl.create_default_context())
 
-radio = wifi.radio
-pool = socketpool.SocketPool(radio)
-requests = adafruit_requests.Session(pool, ssl.create_default_context())
+mdns_server = mdns.Server(wifi.radio)
+mdns_server.hostname = "ambient-temp-sensor"
+mdns_server.advertise_service(service_type="_http", protocol="_tcp", port=80)
 
+garage_ceiling_temp = None
+garage_ceiling_hum = None
+garage_attic_temp = None
+garage_floor_temp = None
+
+http_server = Server(pool, debug=True)
+
+
+@http_server.route("/sensors")
+def sensors_handler(request: Request):
+    """Return the most recently read sensor values as JSON."""
+    return JSONResponse(
+        request,
+        {
+            "garage_ceiling_temp_f": garage_ceiling_temp,
+            "garage_ceiling_humidity": garage_ceiling_hum,
+            "garage_attic_temp_f": garage_attic_temp,
+            "garage_floor_temp_f": garage_floor_temp,
+        },
+    )
+
+
+http_server.start(str(wifi.radio.ipv4_address))
 
 # Set your Adafruit IO Username and Key in secrets.py
 aio_username = secrets["aio_username"]
@@ -101,54 +126,50 @@ ds18b20_2 = adafruit_ds18x20.DS18X20(ow_bus, devices[1])
 i2c = busio.I2C(board.SCL1, board.SDA1)  # uses board.SCL and board.SDA
 aht20 = adafruit_ahtx0.AHTx0(i2c)
 
-try:
-    garage_ceiling_temp = (aht20.temperature * 9)/5 + 26.7
-    garage_ceiling_hum = aht20.relative_humidity
-except:
-    print(" failed to get aht20 data")
-
-try:
-    garage_attic_temp = (ds18b20_1.temperature * 9)/5 + 32
-except:
-    print(" failed to get ds18b20_1 attic data")
-
-try:
-    garage_floor_temp = (ds18b20_2.temperature * 9)/5 + 32
-except:
-    print(" failed to get ds18b20_1 floor data")
+last_read = time.monotonic() - 60  # force an immediate first read
 
 while True:
-    try: garage_ceiling_temp = (aht20.temperature * 9)/5 + 32
-    except: print(" failed to get aht20 data")
-    try: garage_ceiling_hum = aht20.relative_humidity
-    except: print(" failed to get aht20 data")
-
-    try: garage_attic_temp = (ds18b20_1.temperature * 9)/5 + 32
-    except: print(" failed to get ds18b20_1 attic data")
-    try: garage_floor_temp = (ds18b20_2.temperature * 9)/5 + 32
-    except: print(" failed to get ds18b20_2 floor data")
     try:
-        if garage_attic_temp < 150:
-            io.send_data(garage_attic_temperature_feed["key"], garage_attic_temp)
-        if garage_floor_temp < 150:
-            io.send_data(garage_floor_temperature_feed["key"], garage_floor_temp)
-        io.send_data(garage_ceiling_temperature_feed["key"], garage_ceiling_temp)
-        io.send_data(garage_ceiling_humidity_feed["key"], garage_ceiling_hum)
+        http_server.poll()
     except Exception as error:
-        print("failed to send data: " + str(error))
+        print("HTTP server poll failed: " + str(error))
 
-    # set the led: Red, attic is +3 degrees from ceiling, Green, within 3 degrees, Blue, garage ceiling is hotter
-    temp_diff = garage_attic_temp - garage_ceiling_temp
-    if temp_diff > 3:
-        pixel.fill((255, 0, 0))
-    elif temp_diff > 0:
-        pixel.fill((0, 255, 0))
-    else:
-        pixel.fill((0, 0, 255))
-    print("AHT20 Temperature: %0.1f F" % float(garage_ceiling_temp))
-    print("AHT20 Humidity: %0.1f %%" % garage_ceiling_hum)
-    print("DS18B20_1 Attic Temperature: {0:0.1f}F".format(garage_attic_temp))
-    print("DS18B20_2 Floor Temperature: {0:0.1f}F".format(garage_floor_temp))
+    now = time.monotonic()
+    if now - last_read >= 60:
+        last_read = now
 
-    time.sleep(60)
+        try: garage_ceiling_temp = (aht20.temperature * 9)/5 + 32
+        except: print(" failed to get aht20 data")
+        try: garage_ceiling_hum = aht20.relative_humidity
+        except: print(" failed to get aht20 data")
+
+        try: garage_attic_temp = (ds18b20_1.temperature * 9)/5 + 32
+        except: print(" failed to get ds18b20_1 attic data")
+        try: garage_floor_temp = (ds18b20_2.temperature * 9)/5 + 32
+        except: print(" failed to get ds18b20_2 floor data")
+        try:
+            if garage_attic_temp < 150:
+                io.send_data(garage_attic_temperature_feed["key"], garage_attic_temp)
+            if garage_floor_temp < 150:
+                io.send_data(garage_floor_temperature_feed["key"], garage_floor_temp)
+            io.send_data(garage_ceiling_temperature_feed["key"], garage_ceiling_temp)
+            io.send_data(garage_ceiling_humidity_feed["key"], garage_ceiling_hum)
+        except Exception as error:
+            print("failed to send data: " + str(error))
+
+        # set the led: Red, attic is +3 degrees from ceiling, Green, within 3 degrees, Blue, garage ceiling is hotter
+        if None not in (garage_attic_temp, garage_ceiling_temp, garage_ceiling_hum, garage_floor_temp):
+            temp_diff = garage_attic_temp - garage_ceiling_temp
+            if temp_diff > 3:
+                pixel.fill((255, 0, 0))
+            elif temp_diff > 0:
+                pixel.fill((0, 255, 0))
+            else:
+                pixel.fill((0, 0, 255))
+            print("AHT20 Temperature: %0.1f F" % float(garage_ceiling_temp))
+            print("AHT20 Humidity: %0.1f %%" % garage_ceiling_hum)
+            print("DS18B20_1 Attic Temperature: {0:0.1f}F".format(garage_attic_temp))
+            print("DS18B20_2 Floor Temperature: {0:0.1f}F".format(garage_floor_temp))
+
+    time.sleep(0.1)
 
