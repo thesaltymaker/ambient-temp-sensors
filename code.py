@@ -1,15 +1,15 @@
 # Wiring for ESP32-S2 QT PY
 # ESP32-S2 QT PY
-#     SCK    -> MAX31855 CLK
-#     MI     -> MAX31855 DO
+#     SCK
+#     MI
 #     MO
-#     3V     -> MAX31855 VIN
-#     GND    -> MAX31855 GND
+#     3V
+#     GND
 #     5V
-#     A0
+#     A0     -> DS18B20 OneWire bus (both sensors)
 #     A1
 #     A2
-#     A3     -> MAX31855 CS
+#     A3
 #     SDA
 #     SCL
 #     i2c bus for stemma connector is i2c = busio.I2C(board.SCL1, board.SDA1)
@@ -30,6 +30,8 @@ from random import randint
 import adafruit_ds18x20
 from adafruit_onewire.bus import OneWireBus
 import neopixel
+import mdns
+from adafruit_httpserver import Server, Request, JSONResponse
 
 
 pixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
@@ -58,10 +60,33 @@ print("Ping google.com: %f ms" % (wifi.radio.ping(ipv4)*1000))
 pool = socketpool.SocketPool(wifi.radio)
 requests = adafruit_requests.Session(pool, ssl.create_default_context())
 
-radio = wifi.radio
-pool = socketpool.SocketPool(radio)
-requests = adafruit_requests.Session(pool, ssl.create_default_context())
+mdns_server = mdns.Server(wifi.radio)
+mdns_server.hostname = "ambient-temp-sensor"
+mdns_server.advertise_service(service_type="_http", protocol="_tcp", port=80)
 
+garage_ceiling_temp = None
+garage_ceiling_hum = None
+garage_attic_temp = None
+garage_floor_temp = None
+
+http_server = Server(pool, debug=True)
+
+
+@http_server.route("/sensors")
+def sensors_handler(request: Request):
+    """Return the most recently read sensor values as JSON."""
+    return JSONResponse(
+        request,
+        {
+            "garage_ceiling_temp_f": garage_ceiling_temp,
+            "garage_ceiling_humidity": garage_ceiling_hum,
+            "garage_attic_temp_f": garage_attic_temp,
+            "garage_floor_temp_f": garage_floor_temp,
+        },
+    )
+
+
+http_server.start(str(wifi.radio.ipv4_address))
 
 # Set your Adafruit IO Username and Key in secrets.py
 aio_username = secrets["aio_username"]
