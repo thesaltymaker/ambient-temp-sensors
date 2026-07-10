@@ -131,7 +131,7 @@ last_read = time.monotonic() - 60  # force an immediate first read
 while True:
     try:
         http_server.poll()
-    except OSError as error:
+    except Exception as error:
         print("HTTP server poll failed: " + str(error))
 
     now = time.monotonic()
@@ -158,17 +158,18 @@ while True:
             print("failed to send data: " + str(error))
 
         # set the led: Red, attic is +3 degrees from ceiling, Green, within 3 degrees, Blue, garage ceiling is hotter
-        temp_diff = garage_attic_temp - garage_ceiling_temp
-        if temp_diff > 3:
-            pixel.fill((255, 0, 0))
-        elif temp_diff > 0:
-            pixel.fill((0, 255, 0))
-        else:
-            pixel.fill((0, 0, 255))
-        print("AHT20 Temperature: %0.1f F" % float(garage_ceiling_temp))
-        print("AHT20 Humidity: %0.1f %%" % garage_ceiling_hum)
-        print("DS18B20_1 Attic Temperature: {0:0.1f}F".format(garage_attic_temp))
-        print("DS18B20_2 Floor Temperature: {0:0.1f}F".format(garage_floor_temp))
+        if None not in (garage_attic_temp, garage_ceiling_temp, garage_ceiling_hum, garage_floor_temp):
+            temp_diff = garage_attic_temp - garage_ceiling_temp
+            if temp_diff > 3:
+                pixel.fill((255, 0, 0))
+            elif temp_diff > 0:
+                pixel.fill((0, 255, 0))
+            else:
+                pixel.fill((0, 0, 255))
+            print("AHT20 Temperature: %0.1f F" % float(garage_ceiling_temp))
+            print("AHT20 Humidity: %0.1f %%" % garage_ceiling_hum)
+            print("DS18B20_1 Attic Temperature: {0:0.1f}F".format(garage_attic_temp))
+            print("DS18B20_2 Floor Temperature: {0:0.1f}F".format(garage_floor_temp))
 
     time.sleep(0.1)
 
