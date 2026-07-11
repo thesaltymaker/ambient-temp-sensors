@@ -86,7 +86,7 @@ def sensors_handler(request: Request):
     )
 
 
-http_server.start(str(wifi.radio.ipv4_address))
+http_server.start(str(wifi.radio.ipv4_address), port=80)
 
 # Set your Adafruit IO Username and Key in secrets.py
 aio_username = secrets["aio_username"]
