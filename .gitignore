@@ -1,3 +1,5 @@
 secrets.py
 .worktrees/
 .board-backup-pre-9x/
+__pycache__/
+commit_msg.txt
