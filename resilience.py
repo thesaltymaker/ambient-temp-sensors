@@ -22,7 +22,7 @@ def clock_valid():
 
 
 class WifiManager:
-    def __init__(self, networks, retry_interval=30, attempt_timeout=10):
+    def __init__(self, networks, retry_interval=30, attempt_timeout=10, reset_after=600):
         self.networks = networks
         self.retry_interval = retry_interval
         self.attempt_timeout = attempt_timeout
@@ -31,6 +31,8 @@ class WifiManager:
         self.requests_session = None
         self._last_attempt = None
         self.time_synced = False
+        self.reset_after = reset_after
+        self._disconnected_since = None
 
     def ensure_connected(self):
         """Non-blocking-ish connection keeper. Never raises.
@@ -40,6 +42,7 @@ class WifiManager:
         """
         if wifi.radio.connected:
             self.connected = True
+            self._disconnected_since = None
             return True
 
         self.connected = False
@@ -48,12 +51,19 @@ class WifiManager:
             return False
 
         self._last_attempt = now
+
+        if self._disconnected_since is None:
+            self._disconnected_since = time.monotonic()
+        if (time.monotonic() - self._disconnected_since) >= self.reset_after:
+            import supervisor
+            supervisor.reload()
+
         try:
             wifi.radio.enabled = False
             time.sleep(1)
             wifi.radio.enabled = True
-        except Exception:
-            pass
+        except Exception as e:
+            print("radio reset failed:", e)
 
         for net in self.networks:
             try:
@@ -67,9 +77,11 @@ class WifiManager:
                         self.pool, ssl.create_default_context()
                     )
                 self.connected = True
+                self._disconnected_since = None
                 self._sync_time()
                 return True
-            except Exception:
+            except Exception as e:
+                print("wifi connect to", net["ssid"], "failed:", e)
                 continue
 
         return False
